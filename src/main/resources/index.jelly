@@ -1,0 +1,4 @@
+<?jelly escape-by-default='true'?>
+<div>
+    Shared authentication and authorization functionality, such as searching the security realm for users and groups.
+</div>

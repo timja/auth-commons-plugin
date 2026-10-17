@@ -1,0 +1,8 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:l="/lib/layout" xmlns:ac="/lib/auth-commons">
+  <l:layout title="Principal search test">
+    <l:main-panel>
+      <ac:principalSearch id="picker" searchUrl="principalSearchTest/search" type="GROUP" name="sid"/>
+    </l:main-panel>
+  </l:layout>
+</j:jelly>

@@ -1,0 +1,44 @@
+<?jelly escape-by-default='true'?>
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler">
+  <st:documentation>
+    A text input that autocompletes users and groups from the configured security realm,
+    using the PrincipalSearchProvider extension point.
+    Renders an auth-commons-principal-search element; see principal-search-element.js for its JavaScript API.
+
+    <st:attribute name="searchUrl" use="required">
+      URL of a web method returning PrincipalSearch.searchResponse(q, type, limit).
+      It is the caller's responsibility to check permissions in that web method.
+    </st:attribute>
+    <st:attribute name="type">
+      USER, GROUP, or empty to search for both.
+    </st:attribute>
+    <st:attribute name="name">
+      Name of the inner input element.
+    </st:attribute>
+    <st:attribute name="value">
+      Initial value.
+    </st:attribute>
+    <st:attribute name="placeholder">
+      Placeholder of the inner input element.
+    </st:attribute>
+    <st:attribute name="clazz">
+      Additional CSS classes.
+    </st:attribute>
+    <st:attribute name="id">
+      ID of the element.
+    </st:attribute>
+  </st:documentation>
+  <st:adjunct includes="io.jenkins.plugins.authcommons.principal-search"/>
+  <auth-commons-principal-search search-url="${attrs.searchUrl}"
+                                 type="${attrs.type}"
+                                 name="${attrs.name}"
+                                 value="${attrs.value}"
+                                 placeholder="${attrs.placeholder}"
+                                 class="${attrs.clazz}"
+                                 id="${attrs.id}"
+                                 data-message-searching="${%Searching}"
+                                 data-message-no-results="${%No matching users or groups}"
+                                 data-message-error="${%Unable to search for users and groups}"
+                                 data-message-user="${%User}"
+                                 data-message-group="${%Group}"/>
+</j:jelly>
