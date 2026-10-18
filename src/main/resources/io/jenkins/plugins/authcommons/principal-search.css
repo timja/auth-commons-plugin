@@ -3,8 +3,104 @@
   position: relative;
 }
 
-.auth-commons-principal-search > .jenkins-input {
+.auth-commons-principal-search__field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
   width: 100%;
+  cursor: text;
+}
+
+.auth-commons-principal-search__field:focus-within {
+  border-color: var(--focus-input-border);
+  box-shadow: var(--form-input-glow--focus);
+}
+
+.auth-commons-principal-search__input {
+  flex: 1 1 8rem;
+  min-width: 8rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.auth-commons-principal-search__input::placeholder {
+  color: var(--text-color-secondary);
+}
+
+.auth-commons-principal-search__chips {
+  display: contents;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.auth-commons-principal-search__chips[hidden] {
+  display: none;
+}
+
+.auth-commons-principal-search__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  min-height: 1.625rem;
+  padding: 0.1rem 0.15rem 0.1rem 0.2rem;
+  border-radius: 999px;
+  background: var(--item-background--hover, rgba(0, 0, 0, 0.05));
+  cursor: default;
+}
+
+.auth-commons-principal-search__chip > .auth-commons-principal-search__icon,
+.auth-commons-principal-search__chip > .auth-commons-principal-search__avatar {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.auth-commons-principal-search__chip > .auth-commons-principal-search__icon {
+  padding: 0.125rem;
+}
+
+.auth-commons-principal-search__chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--font-bold-weight, 600);
+}
+
+.auth-commons-principal-search__chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-color-secondary);
+  cursor: pointer;
+}
+
+.auth-commons-principal-search__chip-remove:hover,
+.auth-commons-principal-search__chip-remove:focus-visible {
+  background: var(--item-background--active, rgba(0, 0, 0, 0.1));
+  color: var(--text-color);
+  outline: none;
+}
+
+.auth-commons-principal-search__chip-remove > .auth-commons-principal-search__icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  padding: 0;
+  color: inherit;
 }
 
 .auth-commons-principal-search__status {
@@ -56,6 +152,10 @@
   border-radius: 50%;
   object-fit: cover;
   background: var(--item-background--hover, rgba(0, 0, 0, 0.05));
+}
+
+.auth-commons-principal-search__option--free-text .auth-commons-principal-search__name {
+  font-weight: normal;
 }
 
 .auth-commons-principal-search__text {

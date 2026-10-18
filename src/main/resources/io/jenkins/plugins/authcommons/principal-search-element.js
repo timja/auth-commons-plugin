@@ -1,17 +1,31 @@
 /*
- * <auth-commons-principal-search> - a text input that autocompletes users and groups.
+ * <auth-commons-principal-search> - a field that autocompletes users and groups and shows the chosen ones as chips.
  * Loaded by principal-search.js; include the io.jenkins.plugins.authcommons.principal-search adjunct rather than this file.
  *
  * Attributes:
  *   search-url   URL returning {"results": [{sid, type, displayName, description, avatarUrl}]} for ?q=&type=
  *   type         USER, GROUP, or empty for both
- *   name         name of the inner input
- *   placeholder  placeholder for the inner input
- *   value        initial value
- *   data-message-searching, data-message-no-results, data-message-error, data-message-user, data-message-group
+ *   multiple     allow more than one principal to be chosen
+ *   name         name of the inner text input
+ *   placeholder  placeholder of the inner text input
+ *   value        initial text
+ *   data-message-searching, data-message-no-results, data-message-no-users, data-message-no-groups,
+ *   data-message-error, data-message-user, data-message-group, data-message-remove,
+ *   data-message-free-user, data-message-free-group ("{0}" is replaced by the typed text or name)
  *
- * Properties: value, selectedPrincipal, selectedType, input
- * Events: "principal-selected" (detail: the selected principal); "input" bubbles from the inner input.
+ * Text that matches nothing can still be chosen, through "Add 'text' as a user/group" options, so every chip has a type.
+ *
+ * Properties:
+ *   selectedPrincipals  the chosen principals, in order
+ *   selectedPrincipal   the first chosen principal, or null
+ *   selectedType        its type, or null
+ *   value               the first chosen principal's sid, otherwise the typed text
+ *   pendingText         text typed but not chosen yet
+ *   input               the inner text input
+ *   exclude             optional function(principal) returning true for principals not to offer, e.g. ones already added
+ * Methods: clear()
+ * Events (bubbling): "principal-selected" and "principal-removed" (detail: the principal),
+ *   "change" whenever selectedPrincipals changes; "input" bubbles from the inner input.
  */
 (function () {
   "use strict";
@@ -23,7 +37,7 @@
   const DEBOUNCE_MS = 250;
   const MIN_QUERY_LENGTH = 2;
   const SVG_NS = "http://www.w3.org/2000/svg";
-  // ionicons (MIT) person-outline / people-outline
+  // ionicons (MIT) person-outline / people-outline / close-outline
   const ICONS = {
     USER: [
       "M344 144c-3.92 52.87-44 96-88 96s-84.15-43.12-88-96c-4-55 35-96 88-96s92 42 88 96z",
@@ -35,11 +49,12 @@
       "M200 185.94c-2.34 32.48-26.72 58.06-53 58.06s-50.7-25.57-53-58.06C91.61 152.15 115.34 128 147 128s55.39 24.77 53 57.94z",
       "M206 306c-18.05-8.27-37.93-11.45-59-11.45-52 0-102.1 25.85-114.65 76.2-1.65 6.66 2.53 13.25 9.37 13.25H154",
     ],
+    CLOSE: ["M368 368L144 144", "M368 144L144 368"],
   };
 
   let instanceCounter = 0;
 
-  function createAvatar(principal) {
+  function createAvatar(principal, size) {
     if (!principal.avatarUrl) {
       return createIcon(principal.type);
     }
@@ -48,8 +63,8 @@
     img.alt = "";
     img.loading = "lazy";
     img.decoding = "async";
-    img.width = 28;
-    img.height = 28;
+    img.width = size;
+    img.height = size;
     // no photo, or not allowed to see it
     img.addEventListener("error", () => img.replaceWith(createIcon(principal.type)), { once: true });
     img.src = principal.avatarUrl;
@@ -74,16 +89,20 @@
     return svg;
   }
 
+  function sameKey(a, b) {
+    return a.type === b.type && a.sid === b.sid;
+  }
+
   class PrincipalSearchElement extends HTMLElement {
     static get observedAttributes() {
-      return ["type", "placeholder", "name"];
+      return ["type", "placeholder", "name", "multiple"];
     }
 
     constructor() {
       super();
-      this._results = [];
+      this._options = [];
       this._activeIndex = -1;
-      this._selected = null;
+      this._chosen = [];
       this._debounce = null;
       this._abort = null;
       this._lastQuery = null;
@@ -96,9 +115,16 @@
       }
       this.classList.add("auth-commons-principal-search");
 
+      const field = document.createElement("div");
+      field.className = "jenkins-input auth-commons-principal-search__field";
+
+      const chips = document.createElement("ul");
+      chips.className = "auth-commons-principal-search__chips";
+      chips.hidden = true;
+
       const input = document.createElement("input");
       input.type = "text";
-      input.className = "jenkins-input";
+      input.className = "auth-commons-principal-search__input";
       input.autocomplete = "off";
       input.spellcheck = false;
       input.setAttribute("role", "combobox");
@@ -107,23 +133,33 @@
       input.setAttribute("aria-controls", this._id + "-listbox");
       input.value = this.getAttribute("value") || "";
 
-      const listbox = document.createElement("ul");
-      listbox.id = this._id + "-listbox";
-      listbox.className = "auth-commons-principal-search__listbox";
-      listbox.setAttribute("role", "listbox");
-      listbox.hidden = true;
+      field.append(chips, input);
 
       const status = document.createElement("div");
       status.className = "auth-commons-principal-search__status";
       status.setAttribute("aria-live", "polite");
       status.hidden = true;
 
-      this.append(input, status, listbox);
+      const listbox = document.createElement("ul");
+      listbox.id = this._id + "-listbox";
+      listbox.className = "auth-commons-principal-search__listbox";
+      listbox.setAttribute("role", "listbox");
+      listbox.hidden = true;
+
+      this.append(field, status, listbox);
+      this._field = field;
+      this._chips = chips;
       this._input = input;
       this._listbox = listbox;
       this._status = status;
       this._syncAttributes();
 
+      field.addEventListener("mousedown", (e) => {
+        if (e.target === field || e.target === chips) {
+          e.preventDefault();
+          this.focus();
+        }
+      });
       input.addEventListener("input", () => this._onInput());
       input.addEventListener("keydown", (e) => this._onKeyDown(e));
       input.addEventListener("blur", () => {
@@ -134,7 +170,7 @@
       listbox.addEventListener("click", (e) => {
         const option = e.target.closest("[role=option]");
         if (option) {
-          this._select(Number(option.dataset.index));
+          this._choose(Number(option.dataset.index));
         }
       });
     }
@@ -146,7 +182,12 @@
       }
     }
 
-    attributeChangedCallback() {
+    attributeChangedCallback(name) {
+      if (name === "multiple" && this._input && !this.multiple && this._chosen.length > 1) {
+        this._chosen = this._chosen.slice(0, 1);
+        this._renderChips();
+        this._fireChange();
+      }
       this._syncAttributes();
     }
 
@@ -154,30 +195,69 @@
       return this._input;
     }
 
+    get multiple() {
+      return this.hasAttribute("multiple");
+    }
+
+    set multiple(v) {
+      this.toggleAttribute("multiple", Boolean(v));
+    }
+
+    get selectedPrincipals() {
+      return this._chosen.slice();
+    }
+
+    get selectedPrincipal() {
+      return this._chosen.length > 0 ? this._chosen[0] : null;
+    }
+
+    get selectedType() {
+      const principal = this.selectedPrincipal;
+      return principal ? principal.type : null;
+    }
+
+    get pendingText() {
+      return (this._input ? this._input.value : this.getAttribute("value") || "").trim();
+    }
+
     get value() {
-      return this._input ? this._input.value : this.getAttribute("value") || "";
+      const principal = this.selectedPrincipal;
+      return principal ? principal.sid : this.pendingText;
     }
 
     set value(v) {
+      this.clear();
       if (this._input) {
         this._input.value = v == null ? "" : String(v);
       } else {
         this.setAttribute("value", v == null ? "" : String(v));
       }
-      this._selected = null;
     }
 
-    /** The principal chosen from the list, or null if the text was typed or edited since. */
-    get selectedPrincipal() {
-      return this._selected;
-    }
-
-    get selectedType() {
-      return this._selected ? this._selected.type : null;
+    clear() {
+      const hadChips = this._chosen.length > 0;
+      this._chosen = [];
+      if (this._input) {
+        this._input.value = "";
+        this._lastQuery = null;
+        this._close();
+        this._renderChips();
+      }
+      if (hadChips) {
+        this._fireChange();
+      }
     }
 
     focus(options) {
-      if (this._input) {
+      if (!this._input) {
+        return;
+      }
+      if (this._input.hidden) {
+        const remove = this._chips.querySelector("button");
+        if (remove) {
+          remove.focus(options);
+        }
+      } else {
         this._input.focus(options);
       }
     }
@@ -186,10 +266,7 @@
       if (!this._input) {
         return;
       }
-      const placeholder = this.getAttribute("placeholder");
-      if (placeholder) {
-        this._input.placeholder = placeholder;
-      }
+      this._renderChips();
       const name = this.getAttribute("name");
       if (name) {
         this._input.name = name;
@@ -201,38 +278,44 @@
       }
     }
 
-    _message(key, fallback) {
-      return this.dataset[key] || fallback;
+    _message(key, fallback, arg) {
+      const message = this.dataset[key] || fallback;
+      return arg === undefined ? message : message.replace("{0}", arg);
+    }
+
+    _types() {
+      const type = this.getAttribute("type");
+      return type === "USER" || type === "GROUP" ? [type] : ["USER", "GROUP"];
     }
 
     _onInput() {
-      this._selected = null;
       clearTimeout(this._debounce);
-      const query = this._input.value.trim();
-      if (query.length < MIN_QUERY_LENGTH) {
-        if (this._abort) {
-          this._abort.abort();
-        }
+      if (this._abort) {
+        this._abort.abort();
+      }
+      const query = this.pendingText;
+      if (query.length === 0) {
         this._lastQuery = null;
         this._close();
+        return;
+      }
+      if (query.length < MIN_QUERY_LENGTH || !this.getAttribute("search-url")) {
+        this._lastQuery = null;
+        this._renderOptions([], query, false);
         return;
       }
       this._debounce = setTimeout(() => this._search(query), DEBOUNCE_MS);
     }
 
     async _search(query) {
-      const searchUrl = this.getAttribute("search-url");
-      if (!searchUrl || query === this._lastQuery) {
+      if (query === this._lastQuery) {
         return;
       }
       this._lastQuery = query;
-      if (this._abort) {
-        this._abort.abort();
-      }
       const abort = new AbortController();
       this._abort = abort;
 
-      const url = new URL(searchUrl, window.location.href);
+      const url = new URL(this.getAttribute("search-url"), window.location.href);
       url.searchParams.set("q", query);
       const type = this.getAttribute("type");
       if (type) {
@@ -252,67 +335,102 @@
         if (abort.signal.aborted) {
           return;
         }
-        this._render(Array.isArray(json.results) ? json.results : []);
+        this._renderOptions(Array.isArray(json.results) ? json.results : [], query, true);
       } catch (e) {
         if (e.name === "AbortError") {
           return;
         }
         this._lastQuery = null;
-        this._results = [];
-        this._listbox.hidden = true;
+        this._renderOptions([], query, false);
         this._showStatus(this._message("messageError", "Unable to search for users and groups"));
       }
     }
 
-    _render(results) {
-      this._results = results;
+    _noResultsMessage() {
+      const types = this._types();
+      if (types.length === 2) {
+        return this._message("messageNoResults", "No matching users or groups");
+      }
+      return types[0] === "GROUP"
+        ? this._message("messageNoGroups", "No matching groups")
+        : this._message("messageNoUsers", "No matching users");
+    }
+
+    _renderOptions(results, query, searched) {
+      const isChosen = (p) =>
+        this._chosen.some((c) => sameKey(c, p)) || (typeof this.exclude === "function" && this.exclude(p));
+      const options = results.filter((r) => !isChosen(r)).map((principal) => ({ principal }));
+      for (const type of this._types()) {
+        const candidate = { sid: query, type: type, displayName: query, description: null, avatarUrl: null };
+        if (!results.some((r) => sameKey(r, candidate)) && !isChosen(candidate)) {
+          options.push({ principal: candidate, freeText: true });
+        }
+      }
+
+      this._options = options;
       this._activeIndex = -1;
       this._listbox.replaceChildren();
-      if (results.length === 0) {
-        this._listbox.hidden = true;
-        this._input.setAttribute("aria-expanded", "false");
-        this._showStatus(this._message("messageNoResults", "No matching users or groups"));
-        return;
+      options.forEach((entry, index) => this._listbox.appendChild(this._renderOption(entry, index)));
+
+      if (searched && results.length === 0) {
+        this._showStatus(this._noResultsMessage());
+      } else {
+        this._hideStatus();
       }
-      this._hideStatus();
-      results.forEach((principal, index) => {
-        const option = document.createElement("li");
-        option.id = this._id + "-option-" + index;
-        option.className = "auth-commons-principal-search__option";
-        option.setAttribute("role", "option");
-        option.setAttribute("aria-selected", "false");
-        option.dataset.index = String(index);
+      const open = options.length > 0;
+      this._listbox.hidden = !open;
+      this._input.setAttribute("aria-expanded", String(open));
+      if (open) {
+        this._setActive(0);
+      }
+    }
 
-        const text = document.createElement("span");
-        text.className = "auth-commons-principal-search__text";
-        const name = document.createElement("span");
-        name.className = "auth-commons-principal-search__name";
-        name.textContent = principal.displayName || principal.sid;
-        const description = document.createElement("span");
-        description.className = "auth-commons-principal-search__description";
-        const typeLabel =
+    _renderOption(entry, index) {
+      const principal = entry.principal;
+      const option = document.createElement("li");
+      option.id = this._id + "-option-" + index;
+      option.className = "auth-commons-principal-search__option";
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", "false");
+      option.dataset.index = String(index);
+
+      const text = document.createElement("span");
+      text.className = "auth-commons-principal-search__text";
+      const name = document.createElement("span");
+      name.className = "auth-commons-principal-search__name";
+
+      if (entry.freeText) {
+        option.classList.add("auth-commons-principal-search__option--free-text");
+        name.textContent =
           principal.type === "GROUP"
-            ? this._message("messageGroup", "Group")
-            : this._message("messageUser", "User");
-        description.textContent = principal.description
-          ? typeLabel + " · " + principal.description
-          : typeLabel;
-        text.append(name, description);
+            ? this._message("messageFreeGroup", "Add “{0}” as a group", principal.sid)
+            : this._message("messageFreeUser", "Add “{0}” as a user", principal.sid);
+        text.append(name);
+        option.append(createIcon(principal.type), text);
+        return option;
+      }
 
-        option.append(createAvatar(principal), text);
-        this._listbox.appendChild(option);
-      });
-      this._listbox.hidden = false;
-      this._input.setAttribute("aria-expanded", "true");
+      name.textContent = principal.displayName || principal.sid;
+      const description = document.createElement("span");
+      description.className = "auth-commons-principal-search__description";
+      const typeLabel = this._typeLabel(principal.type);
+      description.textContent = principal.description ? typeLabel + " · " + principal.description : typeLabel;
+      text.append(name, description);
+      option.append(createAvatar(principal, 28), text);
+      return option;
+    }
+
+    _typeLabel(type) {
+      return type === "GROUP" ? this._message("messageGroup", "Group") : this._message("messageUser", "User");
     }
 
     _onKeyDown(e) {
-      const open = !this._listbox.hidden && this._results.length > 0;
+      const open = !this._listbox.hidden && this._options.length > 0;
       switch (e.key) {
         case "ArrowDown":
           if (open) {
             e.preventDefault();
-            this._setActive(Math.min(this._activeIndex + 1, this._results.length - 1));
+            this._setActive(Math.min(this._activeIndex + 1, this._options.length - 1));
           }
           break;
         case "ArrowUp":
@@ -325,7 +443,7 @@
           if (open && this._activeIndex >= 0) {
             e.preventDefault();
             e.stopPropagation();
-            this._select(this._activeIndex);
+            this._choose(this._activeIndex);
           }
           break;
         case "Escape":
@@ -333,6 +451,12 @@
             e.preventDefault();
             e.stopPropagation();
             this._close();
+          }
+          break;
+        case "Backspace":
+          if (this._input.selectionStart === 0 && this._input.selectionEnd === 0 && this._chosen.length > 0) {
+            e.preventDefault();
+            this._remove(this._chosen.length - 1);
           }
           break;
         default:
@@ -358,18 +482,88 @@
       }
     }
 
-    _select(index) {
-      const principal = this._results[index];
+    _choose(index) {
+      const entry = this._options[index];
+      if (!entry) {
+        return;
+      }
+      const principal = entry.principal;
+      const replaced = this.multiple ? [] : this._chosen;
+      this._chosen = this.multiple ? this._chosen.concat([principal]) : [principal];
+      this._input.value = "";
+      this._lastQuery = null;
+      this._close();
+      this._renderChips();
+      this.focus();
+      for (const old of replaced) {
+        this._fire("principal-removed", old);
+      }
+      this._fire("principal-selected", principal);
+      this._fireChange();
+    }
+
+    _remove(index) {
+      const principal = this._chosen[index];
       if (!principal) {
         return;
       }
-      this._input.value = principal.sid;
-      this._selected = principal;
-      this._lastQuery = principal.sid;
-      this._close();
-      this.dispatchEvent(
-        new CustomEvent("principal-selected", { detail: principal, bubbles: true, composed: true }),
-      );
+      this._chosen = this._chosen.filter((_, i) => i !== index);
+      this._renderChips();
+      this._input.focus();
+      this._fire("principal-removed", principal);
+      this._fireChange();
+    }
+
+    _renderChips() {
+      this._chips.replaceChildren();
+      this._chosen.forEach((principal, index) => {
+        const label = principal.displayName || principal.sid;
+        const details = [this._typeLabel(principal.type)];
+        if (principal.description) {
+          details.push(principal.description);
+        }
+        if (principal.sid !== label) {
+          details.push(principal.sid);
+        }
+
+        const chip = document.createElement("li");
+        chip.className = "auth-commons-principal-search__chip";
+        chip.dataset.sid = principal.sid;
+        chip.dataset.type = principal.type;
+        chip.title = label + " (" + details.join(" · ") + ")";
+
+        const name = document.createElement("span");
+        name.className = "auth-commons-principal-search__chip-name";
+        name.textContent = label;
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "auth-commons-principal-search__chip-remove";
+        remove.setAttribute("aria-label", this._message("messageRemove", "Remove {0}", label));
+        remove.appendChild(createIcon("CLOSE"));
+        remove.addEventListener("click", () => this._remove(index));
+        remove.addEventListener("keydown", (e) => {
+          if (e.key === "Backspace" || e.key === "Delete") {
+            e.preventDefault();
+            this._remove(index);
+          }
+        });
+
+        chip.append(createAvatar(principal, 20), name, remove);
+        this._chips.appendChild(chip);
+      });
+      this._chips.hidden = this._chosen.length === 0;
+      // a single-valued field is full once something is chosen
+      this._input.hidden = !this.multiple && this._chosen.length > 0;
+      this._input.placeholder = this._chosen.length > 0 ? "" : this.getAttribute("placeholder") || "";
+    }
+
+    _fire(name, principal) {
+      this.dispatchEvent(new CustomEvent(name, { detail: principal, bubbles: true, composed: true }));
+    }
+
+    _fireChange() {
+      this.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
     _close() {

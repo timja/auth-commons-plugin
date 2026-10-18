@@ -62,8 +62,20 @@ or include the `io.jenkins.plugins.authcommons.principal-search` adjunct and use
 <auth-commons-principal-search search-url="…/searchPrincipals" type="GROUP"></auth-commons-principal-search>
 ```
 
-The element exposes `value`, `selectedPrincipal` and `selectedType`, and dispatches a `principal-selected` event with the
-principal as `detail`. Free text is still accepted, so users can enter SIDs that the directory does not know about.
+Chosen users and groups are shown as chips: avatar or icon, display name, and a button to remove them. Set the `multiple`
+attribute (or `multiple="true"` on the taglib) to allow more than one. Text that matches nothing can still be chosen,
+through "Add “…” as a user/group" options, so users can enter SIDs that the directory does not know about, and every
+chosen principal has a type. Setting `type` limits both the search and those options to users or groups.
+
+The element exposes:
+
+* `selectedPrincipals`, the chosen principals in order, and `selectedPrincipal` / `selectedType` for the first one
+* `value`, the first chosen SID, otherwise the typed text, and `pendingText`, text typed but not chosen yet
+* `exclude`, an optional `function (principal)` returning `true` for principals not to offer, e.g. ones already added
+* `clear()`
+
+It dispatches `principal-selected` and `principal-removed` events with the principal as `detail`, and a `change` event
+whenever the chosen principals change.
 
 `PrincipalSearch.isAvailable()` tells you whether a provider can search the current security realm. If none can, keep your
 existing plain text input.

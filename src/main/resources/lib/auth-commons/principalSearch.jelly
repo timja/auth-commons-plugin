@@ -12,6 +12,9 @@
     <st:attribute name="type">
       USER, GROUP, or empty to search for both.
     </st:attribute>
+    <st:attribute name="multiple">
+      If true, more than one user or group can be chosen.
+    </st:attribute>
     <st:attribute name="name">
       Name of the inner input element.
     </st:attribute>
@@ -31,6 +34,7 @@
   <st:adjunct includes="io.jenkins.plugins.authcommons.principal-search"/>
   <auth-commons-principal-search search-url="${attrs.searchUrl}"
                                  type="${attrs.type}"
+                                 multiple="${attrs.multiple ? 'multiple' : null}"
                                  name="${attrs.name}"
                                  value="${attrs.value}"
                                  placeholder="${attrs.placeholder}"
@@ -38,6 +42,11 @@
                                  id="${attrs.id}"
                                  data-message-searching="${%Searching}"
                                  data-message-no-results="${%No matching users or groups}"
+                                 data-message-no-users="${%No matching users}"
+                                 data-message-no-groups="${%No matching groups}"
+                                 data-message-free-user="${%freeUser}"
+                                 data-message-free-group="${%freeGroup}"
+                                 data-message-remove="${%remove}"
                                  data-message-error="${%Unable to search for users and groups}"
                                  data-message-user="${%User}"
                                  data-message-group="${%Group}"/>
